@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Uji Printer ZMart</title>
+<style>
+:root{--ink:#14232b;--muted:#5d6f78;--line:#d5dee2;--bg:#eef3f5;--brand:#0f4c5c;--ok:#1b7f4b;--bad:#b3261e}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+main{max-width:680px;margin:auto;padding:16px}
+h1{font-size:20px;margin:6px 0 2px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+h2{font-size:16px;margin:0 0 8px}
+p{margin:6px 0;color:var(--muted)}
+button{font:inherit;font-weight:700;border:0;border-radius:8px;padding:11px 14px;background:var(--brand);color:#fff;cursor:pointer;margin:4px 6px 4px 0}
+button.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+button:disabled{opacity:.5}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;width:100%;max-width:220px}
+label{display:block;font-weight:600;margin-top:8px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse}td{padding:5px 4px;border-bottom:1px solid var(--line)}
+.ok{color:var(--ok);font-weight:700}.bad{color:var(--bad);font-weight:700}
+#log{background:#101820;color:#d8e6ee;font:12px/1.4 ui-monospace,Consolas,monospace;padding:10px;border-radius:8px;min-height:140px;max-height:320px;overflow:auto;white-space:pre-wrap}
+@media print{body *{visibility:hidden}#struk,#struk *{visibility:visible}#struk{position:absolute;left:0;top:0;width:100%}}
+#struk{display:none;font:12px/1.3 ui-monospace,monospace;white-space:pre}
+@media print{#struk{display:block}}
+</style>
+</head>
+<body>
+<main>
+<h1>Uji printer thermal ZMart</h1>
+<p>Halaman ini hanya untuk mengetes sambungan printer Bluetooth, USB, dan cetak browser. Belum terhubung ke aplikasi kasir. Buka di Chrome atau Edge.</p>
+
+<div class="panel">
+  <h2>1. Cek dukungan perangkat ini</h2>
+  <table id="cek"></table>
+  <button class="ghost" id="btnCek">Cek ulang</button>
+</div>
+
+<div class="panel">
+  <h2>2. Pengaturan cetak</h2>
+  <div class="row">
+    <div><label for="lebar">Lebar kertas (mm, kelipatan 8)</label><input id="lebar" value="48" inputmode="numeric"></div>
+    <div><label for="chunk">Ukuran kiriman Bluetooth (byte)</label><input id="chunk" value="100" inputmode="numeric"></div>
+    <div><label for="baud">Baud rate (serial)</label><input id="baud" value="115200" inputmode="numeric"></div>
+  </div>
+  <p>Kalau cetak Bluetooth terpotong atau macet, kecilkan ukuran kiriman (misalnya 20 atau 50).</p>
+</div>
+
+<div class="panel">
+  <h2>3. Coba sambungkan dan cetak</h2>
+  <p><b>Bluetooth BLE</b> (hanya printer BLE; HP Android dan PC):</p>
+  <button id="btnBle">Pindai dan cetak via Bluetooth</button>
+  <p><b>USB langsung</b> (PC dan Android lewat kabel OTG):</p>
+  <button id="btnUsb">Pilih dan cetak via USB</button>
+  <p><b>Serial</b> (Bluetooth klasik yang sudah dipasangkan di Windows, atau USB-serial):</p>
+  <button id="btnSerial">Pilih port dan cetak via Serial</button>
+  <p><b>Cadangan:</b> dialog cetak browser (butuh printer terpasang di perangkat).</p>
+  <button class="ghost" id="btnPrint">Cetak lewat browser</button>
+</div>
+
+<div class="panel">
+  <h2>Hasil</h2>
+  <div id="log"></div>
+  <button class="ghost" id="btnSalin">Salin hasil</button>
+  <p>Kalau ada yang gagal, salin hasil di atas dan kirim ke saya.</p>
+</div>
+</main>
+<div id="struk"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const logEl = $('#log');
+function log(m) { logEl.textContent += new Date().toLocaleTimeString('id-ID') + '  ' + m + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+const num = (id, d) => { const n = parseInt($(id).value.replace(/\D/g, ''), 10); return isFinite(n) && n > 0 ? n : d; };
+const tidur = ms => new Promise(r => setTimeout(r, ms));
+const err = e => (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : e);
+
+function kolom() { const mm = Math.max(8, Math.round(num('#lebar', 48) / 8) * 8); return Math.floor(mm * 8 / 12); }
+
+// Isi struk contoh (ASCII murni supaya aman di semua printer)
+function bangunStruk() {
+  const w = kolom(), enc = s => Array.from(s).map(c => c.charCodeAt(0) & 0x7f);
+  const b = [0x1b, 0x40];
+  const garis = '-'.repeat(w);
+  const lr = (l, r) => l + ' '.repeat(Math.max(1, w - l.length - r.length)) + r;
+  const mid = s => ' '.repeat(Math.max(0, Math.floor((w - s.length) / 2))) + s;
+  const baris = (s, bold) => { if (bold) b.push(0x1b, 0x45, 1); b.push(...enc(s), 10); if (bold) b.push(0x1b, 0x45, 0); };
+  baris(mid('ZMART'), true); baris(mid('TES PRINTER'));
+  baris(garis); baris('1234567890'.repeat(5).slice(0, w)); baris(garis);
+  baris(lr('Mie instan 3 x 3.500', '10.500')); baris(lr('Susu UHT 2 x 8.000', '16.000'));
+  baris(garis); baris(lr('TOTAL', 'Rp 26.500'), true); baris(lr('Bayar', 'Rp 50.000')); baris(lr('Kembali', 'Rp 23.500'));
+  baris(garis); baris(mid('Terima kasih'));
+  b.push(10, 10, 10, 0x1d, 0x56, 0x42, 0x00);
+  return Uint8Array.from(b);
+}
+function teksStruk() { return new TextDecoder().decode(bangunStruk().filter(x => x >= 10 && x < 127 || x === 10)).replace(/[\x00-\x09\x0b-\x1f]/g, ''); }
+
+// Cek dukungan
+function policy(n) { try { return document.permissionsPolicy ? (document.permissionsPolicy.allowsFeature(n) ? 'diizinkan' : 'DIBLOKIR') : 'tidak diketahui'; } catch (e) { return 'tidak diketahui'; } }
+function cek() {
+  let iframe = 'tidak'; try { iframe = window.top !== window ? 'ya' : 'tidak'; } catch (e) { iframe = 'ya'; }
+  const rows = [
+    ['Halaman aman (HTTPS)', window.isSecureContext, window.isSecureContext ? 'ya' : 'tidak'],
+    ['Dalam iframe', iframe === 'tidak', iframe],
+    ['Bluetooth (Web Bluetooth)', 'bluetooth' in navigator, ('bluetooth' in navigator ? 'tersedia' : 'tidak tersedia') + ', izin: ' + policy('bluetooth')],
+    ['USB (WebUSB)', 'usb' in navigator, ('usb' in navigator ? 'tersedia' : 'tidak tersedia') + ', izin: ' + policy('usb')],
+    ['Serial (Web Serial)', 'serial' in navigator, ('serial' in navigator ? 'tersedia' : 'tidak tersedia') + ', izin: ' + policy('serial')]
+  ];
+  $('#cek').innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="${r[1] ? 'ok' : 'bad'}">${r[2]}</td></tr>`).join('');
+  log('Cek dukungan: ' + rows.map(r => r[0] + '=' + r[2]).join(' | ') + ' | ' + navigator.userAgent);
+}
+
+async function kirimChunk(bytes, size, tulis) {
+  for (let i = 0; i < bytes.length; i += size) { await tulis(bytes.subarray(i, i + size)); await tidur(25); }
+}
+
+// Bluetooth BLE
+const BLE_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '0000ae30-0000-1000-8000-00805f9b34fb',
+  '0000fee7-0000-1000-8000-00805f9b34fb', '0000fff0-0000-1000-8000-00805f9b34fb', '00001101-0000-1000-8000-00805f9b34fb'];
+$('#btnBle').onclick = async () => {
+  if (!navigator.bluetooth) return log('BLE: Web Bluetooth tidak tersedia di browser/perangkat ini.');
+  try {
+    log('BLE: membuka daftar perangkat...');
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BLE_SERVICES });
+    log('BLE: dipilih "' + (dev.name || 'tanpa nama') + '", menyambung...');
+    const srv = await dev.gatt.connect();
+    const svcs = await srv.getPrimaryServices();
+    log('BLE: layanan ditemukan: ' + (svcs.map(s => s.uuid).join(', ') || 'tidak ada'));
+    let ch = null;
+    for (const s of svcs) { for (const c of await s.getCharacteristics()) { const p = c.properties; log('  karakteristik ' + c.uuid + ' write=' + p.write + ' writeNoResp=' + p.writeWithoutResponse); if (!ch && (p.write || p.writeWithoutResponse)) ch = c; } }
+    if (!ch) throw new Error('Tidak ada jalur tulis. Printer ini kemungkinan Bluetooth klasik, bukan BLE.');
+    const data = bangunStruk();
+    await kirimChunk(data, num('#chunk', 100), c => ch.properties.writeWithoutResponse ? ch.writeValueWithoutResponse(c) : ch.writeValue(c));
+    log('BLE: terkirim ' + data.length + ' byte. Cek apakah struk keluar.');
+    dev.gatt.disconnect();
+  } catch (e) { log('BLE GAGAL: ' + err(e)); }
+};
+
+// USB
+$('#btnUsb').onclick = async () => {
+  if (!navigator.usb) return log('USB: WebUSB tidak tersedia di browser/perangkat ini.');
+  try {
+    const dev = await navigator.usb.requestDevice({ filters: [] });
+    log('USB: dipilih ' + (dev.productName || 'tanpa nama') + ' (' + dev.vendorId.toString(16) + ':' + dev.productId.toString(16) + ')');
+    await dev.open();
+    if (!dev.configuration) await dev.selectConfiguration(1);
+    let ep = null, ifn = null;
+    for (const i of dev.configuration.interfaces) for (const a of i.alternates) {
+      log('  interface ' + i.interfaceNumber + ' kelas ' + a.interfaceClass + ' endpoint: ' + a.endpoints.map(e => e.endpointNumber + '/' + e.direction + '/' + e.type).join(', '));
+      if (ep === null) { const e = a.endpoints.find(x => x.direction === 'out' && x.type === 'bulk'); if (e) { ifn = i.interfaceNumber; ep = e.endpointNumber; } }
+    }
+    if (ep === null) throw new Error('Jalur cetak (bulk out) tidak ditemukan. Mungkin kabel USB ini hanya untuk daya.');
+    try { await dev.claimInterface(ifn); } catch (e) { throw new Error('Gagal klaim interface (' + err(e) + '). Di Windows butuh driver WinUSB; di Android biasanya tidak perlu.'); }
+    const data = bangunStruk();
+    await kirimChunk(data, 4096, c => dev.transferOut(ep, c));
+    log('USB: terkirim ' + data.length + ' byte ke endpoint ' + ep + '. Cek apakah struk keluar.');
+    await dev.close();
+  } catch (e) { log('USB GAGAL: ' + err(e)); }
+};
+
+// Serial
+$('#btnSerial').onclick = async () => {
+  if (!navigator.serial) return log('Serial: Web Serial tidak tersedia di browser/perangkat ini.');
+  try {
+    const port = await navigator.serial.requestPort();
+    log('Serial: port dipilih ' + JSON.stringify(port.getInfo ? port.getInfo() : {}));
+    await port.open({ baudRate: num('#baud', 115200) });
+    const w = port.writable.getWriter(), data = bangunStruk();
+    try { for (let i = 0; i < data.length; i += 512) await w.write(data.subarray(i, i + 512)); } finally { w.releaseLock(); }
+    log('Serial: terkirim ' + data.length + ' byte. Cek apakah struk keluar.');
+    await tidur(500); await port.close();
+  } catch (e) { log('Serial GAGAL: ' + err(e)); }
+};
+
+// Cetak browser
+$('#btnPrint').onclick = () => {
+  $('#struk').textContent = teksStruk();
+  log('Browser: membuka dialog cetak...');
+  window.print();
+};
+$('#btnCek').onclick = cek;
+$('#btnSalin').onclick = async () => { try { await navigator.clipboard.writeText(logEl.textContent); log('Hasil disalin.'); } catch (e) { log('Tidak bisa menyalin otomatis. Blok teks lalu salin manual.'); } };
+cek();
+</script>
+</body>
+</html>
