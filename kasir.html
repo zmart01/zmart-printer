@@ -1086,7 +1086,7 @@ $('#rfProses').onclick = async () => {
 const LAYOUT_DEF = { kop: 'ZMart', footer: 'Terima kasih', fontPx: 12, fontKecil: false, salinan: 1, atas: 0, bawah: 3, kiri: 0, kanan: 0, noPajak: '', logoLebar: 60, logo: '',
   tampil: { trx: true, waktu: true, kasir: true, metode: true, shift: false, pajak: false } };
 let layout = JSON.parse(JSON.stringify(LAYOUT_DEF));
-const PROF_DEF = { aktif: false, nama: 'Receipt', koneksi: 'ble', chunk: 100, bleId: '', layanan: '', lebar: 48, init: '1b,40', potong: '1d,56,30', laci: '1b,70,00,19,fa',
+const PROF_DEF = { aktif: true, nama: 'Receipt', koneksi: 'ble', chunk: 100, bleId: '', layanan: '', lebar: 48, init: '1b,40', potong: '1d,56,30', laci: '1b,70,00,19,fa',
   raster: false, laciOn: false, otomatis: false, portIdx: 0, vid: 0, pid: 0 };
 function profil() { try { return Object.assign({}, PROF_DEF, JSON.parse(localStorage.getItem('zm_printer') || '{}')); } catch (e) { return Object.assign({}, PROF_DEF); } }
 function simpanProfil(p) { try { localStorage.setItem('zm_printer', JSON.stringify(p)); return true; } catch (e) { return false; } }
@@ -1198,6 +1198,7 @@ function buildEscpos(lines, p, opt) {
 const kon = { serial: null, usb: null, ble: null };
 const BLE_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb',
   '49535343-fe7d-4ae5-8fa9-9fafd205e455', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '0000ae30-0000-1000-8000-00805f9b34fb'];
+const pesanPrinter = e => { const m = (e && e.message) ? e.message : String(e); return /permissions policy|disallowed|SecurityError/i.test(m) ? 'Browser memblokir akses printer langsung di halaman ini. Pakai mode "Cetak lewat browser".' : m; };
 const tidur = ms => new Promise(r => setTimeout(r, ms));
 const hex4 = n => ('0000' + Number(n).toString(16)).slice(-4);
 
@@ -1257,7 +1258,9 @@ async function sambungBle(p) {
     if (ch) break;
   }
   if (!ch) throw new Error('Printer BLE ini tidak punya jalur tulis yang dikenal');
-  kon.ble = { dev, ch }; return kon.ble;
+  kon.ble = { dev, ch };
+  if (dev.id && dev.id !== (p && p.bleId)) { simpanProfil(Object.assign({}, profil(), { bleId: dev.id, layanan: dev.name || 'Printer BLE' })); try { isiFormProfil(); } catch (e) {} }
+  return kon.ble;
 }
 async function kirim(bytes, p) {
   try {
@@ -1317,8 +1320,8 @@ async function cetakEl(el, opt) {
     await kirim(buildEscpos(domToLines(el), p, { laci: opt.laci && p.laciOn, logo }), p);
     toast('Struk dicetak'); if (opt.tutup) opt.tutup();
   } catch (e) {
-    toast('Printer gagal: ' + (e && e.message ? e.message : e) + '. Memakai cetak browser.', true);
-    window.print();
+    if (e && e.name === 'NotFoundError') toast('Pemilihan printer dibatalkan. Tekan Enter lagi untuk mencoba.', true);
+    else { toast('Printer gagal: ' + pesanPrinter(e) + '. Memakai cetak browser.', true); window.print(); }
   }
   sedangCetak = false;
 }
