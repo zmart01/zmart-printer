@@ -227,7 +227,6 @@ textarea{font:inherit;padding:9px 10px;border:1px solid var(--line);border-radiu
       <div class="panel" style="display:grid;gap:8px;align-content:start">
         <b style="font-size:16px">Pengaturan printer (perangkat ini)</b>
         <p class="hint" style="margin:0">Semua karyawan boleh menyambungkan printer. Disimpan di perangkat ini saja, jadi atur sekali di tiap HP, tablet, atau komputer kasir.</p>
-        <label class="chk"><input type="checkbox" id="pAktif"> Aktifkan printer struk</label>
         <label for="pKoneksi">Koneksi</label>
         <select id="pKoneksi">
           <option value="ble">Bluetooth (BLE) - disarankan</option>
@@ -640,7 +639,7 @@ function struk(r, salinan) {
   tampilModalStruk(strukHtml(r, salinan), salinan ? 'Cetak ulang (Enter)' : 'Cetak struk (Enter)', salinan ? 'Tutup (Esc)' : 'Transaksi baru (Esc)',
     { laci: !salinan && adaTunai(r) });
   const p = profil();
-  if (!salinan && p.aktif && p.otomatis && p.koneksi !== 'browser') cetakModal();
+  if (!salinan && p.otomatis && p.koneksi !== 'browser') cetakModal();
 }
 function strukRefund(r) {
   tampilModalStruk(`${kopHtml()}<div style="text-align:center"><b>BUKTI REFUND</b></div><div>${esc(r.refId)}<br>${esc(r.tgl)}<br>Transaksi: ${esc(r.trxId)}<br>Kasir: ${esc(r.kasir)}<br>Disetujui: ${esc(r.approver)}</div><hr>` +
@@ -1309,11 +1308,11 @@ function logoRaster(dataUrl, U, persen) {
 }
 
 // Cetak terpusat; bila printer gagal, jatuh ke cetak browser
-let sedangCetak = false;
+let sedangCetak = false, terakhirGagal = '';
 async function cetakEl(el, opt) {
   if (sedangCetak) return; opt = opt || {};
   const p = profil();
-  if (!p.aktif || p.koneksi === 'browser') { window.print(); return; }
+  if (p.koneksi === 'browser') { window.print(); return; }
   sedangCetak = true;
   try {
     const logo = el.querySelector('img.logo') ? await logoRaster(layout.logo, ukuran(p), layout.logoLebar) : [];
@@ -1321,7 +1320,7 @@ async function cetakEl(el, opt) {
     toast('Struk dicetak'); if (opt.tutup) opt.tutup();
   } catch (e) {
     if (e && e.name === 'NotFoundError') toast('Pemilihan printer dibatalkan. Tekan Enter lagi untuk mencoba.', true);
-    else { toast('Printer gagal: ' + pesanPrinter(e) + '. Memakai cetak browser.', true); window.print(); }
+    else { terakhirGagal = pesanPrinter(e); toast('Printer gagal: ' + terakhirGagal + '. Memakai cetak browser.', true); window.print(); }
   }
   sedangCetak = false;
 }
@@ -1332,14 +1331,14 @@ const cetakLap = () => cetakEl($('#lapStruk'), { tutup: tutupLap });
 const angka = (v, def) => { const n = parseInt(String(v).replace(/\D/g, ''), 10); return isFinite(n) ? n : def; };
 function isiFormProfil() {
   const p = profil();
-  $('#pAktif').checked = p.aktif; $('#pNama').value = p.nama; $('#pKoneksi').value = p.koneksi; $('#pLayanan').value = p.layanan;
+  $('#pNama').value = p.nama; $('#pKoneksi').value = p.koneksi; $('#pLayanan').value = p.layanan;
   $('#pLebar').value = p.lebar; $('#pInit').value = p.init; $('#pPotong').value = p.potong; $('#pLaci').value = p.laci;
   $('#pChunk').value = p.chunk; $('#pRaster').checked = p.raster; $('#pLaciOn').checked = p.laciOn; $('#pOto').checked = p.otomatis;
 }
 function bacaProfilForm() {
   const lama = profil();
   let lebar = Math.min(120, Math.max(8, Math.round(angka($('#pLebar').value, 48) / 8) * 8));
-  return Object.assign({}, lama, { aktif: $('#pAktif').checked, nama: $('#pNama').value.trim() || 'Receipt', koneksi: $('#pKoneksi').value, lebar,
+  return Object.assign({}, lama, { nama: $('#pNama').value.trim() || 'Receipt', koneksi: $('#pKoneksi').value, lebar,
     chunk: Math.min(512, Math.max(20, angka($('#pChunk').value, 100))), init: $('#pInit').value.trim(), potong: $('#pPotong').value.trim(), laci: $('#pLaci').value.trim(),
     raster: $('#pRaster').checked, laciOn: $('#pLaciOn').checked, otomatis: $('#pOto').checked });
 }
@@ -1451,13 +1450,18 @@ $('#pBukaLaci').onclick = async () => {
   try { await kirim(Uint8Array.from(parseHex(p.init, 'awal').concat(parseHex(p.laci, 'laci kasir'))), p); toast('Perintah buka laci terkirim'); }
   catch (e) { toast('Gagal: ' + (e.message || e), true); }
 };
-$('#pCek').onclick = () => {
+$('#pCek').onclick = async () => {
   const f = n => { try { return document.permissionsPolicy ? (document.permissionsPolicy.allowsFeature(n) ? 'diizinkan' : 'DIBLOKIR halaman') : 'tidak diketahui'; } catch (e) { return 'tidak diketahui'; } };
   let iframe = 'tidak diketahui'; try { iframe = window.top !== window ? 'ya (normal untuk Apps Script)' : 'tidak'; } catch (e) { iframe = 'ya'; }
   const a = [['serial', 'Web Serial'], ['usb', 'WebUSB'], ['bluetooth', 'Web Bluetooth']].map(([k, n]) => `${n}: ${k in navigator ? 'ada' : 'tidak ada'}, izin halaman ${f(k)}`);
   const ok = ['serial', 'usb', 'bluetooth'].some(k => k in navigator && f(k) !== 'DIBLOKIR halaman');
+  let adapter = 'tidak diketahui';
+  try { if (navigator.bluetooth && navigator.bluetooth.getAvailability) adapter = (await navigator.bluetooth.getAvailability()) ? 'ADA dan menyala' : 'TIDAK ADA atau mati (perangkat ini tidak punya Bluetooth, atau Bluetooth dimatikan)'; } catch (e) {}
+  const p = profil();
   $('#pInfo').textContent = [`HTTPS: ${window.isSecureContext ? 'ya' : 'tidak'}`, `Dalam iframe: ${iframe}`].concat(a,
-    [ok ? 'Ada jalur koneksi langsung. Coba Pindai lalu Coba cetak.' : 'Koneksi langsung tidak tersedia di halaman ini. Pakai mode "Cetak lewat browser".']).join('\n');
+    [`Adapter Bluetooth perangkat ini: ${adapter}`, `Koneksi printer: ${p.koneksi}${p.layanan ? ' (' + p.layanan + ')' : ''}`,
+      terakhirGagal ? 'Cetak terakhir gagal: ' + terakhirGagal : 'Belum ada kegagalan cetak sejak halaman dibuka.',
+      ok ? 'Ada jalur koneksi langsung. Coba Pindai lalu Coba cetak.' : 'Koneksi langsung tidak tersedia di halaman ini. Pakai mode "Cetak lewat browser".']).join('\n');
 };
 $('#lSimpan').onclick = async () => {
   try { layout = gabungLayout(await run('simpanPengaturanStruk', bacaLayoutForm())); terapkanCss(); isiFormLayout(); toast('Layout struk disimpan untuk semua kasir'); }
