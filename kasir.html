@@ -405,7 +405,7 @@ async function run(fn, ...args) {
   } finally { clearTimeout(tm); }
   if (!r || !r.ok) {
     const m = (r && r.error) || 'Terjadi kesalahan di server';
-    if (/Sesi berakhir/.test(m)) showLogin(); else if (/Transaksi diblokir/.test(m)) cekShiftLama();
+    if (/Sesi berakhir/.test(m)) { if (!sedangHasil) showLogin(); } else if (/Transaksi diblokir/.test(m)) cekShiftLama();
     throw new Error(m);
   }
   return r.data;
@@ -816,8 +816,9 @@ $('#tutupSubmit').onclick = async () => {
   btn.disabled = false;
 };
 let lapShift = null;
+let sedangHasil = false; // true selama layar hasil tutup shift tampil: jangan dilempar ke login oleh timer
 function tampilHasil(l) {
-  lapShift = l;
+  lapShift = l; sedangHasil = true;
   const cls = l.selisih < 0 ? 'minus' : (l.selisih > 0 ? 'lebih' : 'ok');
   const label = l.selisih < 0 ? 'Kasir MINUS ' + rp(-l.selisih) : (l.selisih > 0 ? 'Kasir lebih ' + rp(l.selisih) : 'Kasir sesuai');
   const non = (l.per.QRIS + l.per.Debit + l.per.Kredit) - (l.refPer.QRIS + l.refPer.Debit + l.refPer.Kredit);
@@ -841,7 +842,7 @@ function tampilHasil(l) {
     <button class="btn ghost" id="selesai" style="margin-top:6px">Selesai dan keluar</button>`;
   $('#cetakLapShift').onclick = () => tampilLaporan(htmlLapShift(lapShift));
   $('#cetakLapHarian').onclick = () => tampilLaporan(htmlLapHarian(lapShift.harian));
-  $('#selesai').onclick = showLogin;
+  $('#selesai').onclick = async () => { sedangHasil = false; try { await run('logout'); } catch (e) {} showLogin(); };
   $('#cetakLapShift').focus();
 }
 
@@ -909,7 +910,7 @@ $('#stbody').onclick = async e => {
 let pendingData = [];
 function labelPending() { $('#pendingBtn').textContent = 'Pending' + (pendingData.length ? ' (' + pendingData.length + ')' : '') + ' (F10)'; }
 async function refreshPending() {
-  if (!token || !user) return;
+  if (!token || !user || sedangHasil) return;
   try { pendingData = await run('pendingList'); labelPending(); if ($('#mPending').classList.contains('on')) renderPending(); } catch (e) {}
 }
 function renderPending() {
@@ -986,7 +987,7 @@ function kunciHtml() {
   return h + `<button class="btn ghost" id="kKeluar">Keluar</button>`;
 }
 async function cekShiftLama() {
-  if (!token || !user) return;
+  if (!token || !user || sedangHasil) return;
   let r;
   try { r = await run('statusShiftLama'); } catch (e) { return; }
   const was = diblokir;
@@ -1484,6 +1485,7 @@ $('#srvTes').onclick = async () => {
 };
 // Login & sesi
 function showLogin() {
+  sedangHasil = false;
   token = null; user = null; cart = {};
   try { sessionStorage.removeItem('tk'); } catch (e) {}
   $('#ref').value = ''; setMetode('Tunai'); $('#lpin').value = ''; renderCart();
